@@ -30,7 +30,7 @@ public class BTreeImpl<Key extends Comparable<Key>, Value> implements BTree<Key,
         private Entry(KeyWrapper kw, Object val){
             this.wrappedKey = kw;
             this.val = val;
-            this.isDeleted = val==null; //If creating an entry with a null value,
+            this.isDeleted = val==null;
         }
 
         //only to be called on entries of internal nodes
@@ -83,12 +83,14 @@ public class BTreeImpl<Key extends Comparable<Key>, Value> implements BTree<Key,
         }
     }
 
-
+    /**
+     * Creates a root node
+     * Adds a sentinel entry to said node, which will exist as leftmost entry at every level of height
+     */
     public BTreeImpl(){
-        //Make root node, add sentinel entry to said node. Which will automatically end up on left most entry at each height
         this.root = new Node(0);
-        //KeyWrapper sentinel = new KeyWrapper("Sentinel", true);
-        //this.put(root, sentinel,null,0); //Will increment entryCount of root node to 1
+        KeyWrapper sentinel = new KeyWrapper("Sentinel", true);
+        this.put(root, sentinel,null,0); //Will increment entryCount of root node to 1
     }
 
     @Override
@@ -118,7 +120,7 @@ public class BTreeImpl<Key extends Comparable<Key>, Value> implements BTree<Key,
     private Entry get(Node currentNode, KeyWrapper kw , int height){
         Entry[] entries = currentNode.entries;
 
-        // If at external node:
+        // External node code:
         if(height == 0){
             for(int i=0; i < currentNode.entryCount; i++){
                 if(isEqual(entries[i].wrappedKey, (kw))) return entries[i]; //Checks compareTo==0, not .equals. For URI there is no inconsistency declared in javadocs.
@@ -193,7 +195,6 @@ public class BTreeImpl<Key extends Comparable<Key>, Value> implements BTree<Key,
         int j;
         Entry newEntry = new Entry(kw, v); //if v is null, newEntry.isDeleted is automatically set to true
 
-
         //External Node Code
         if(height == 0){
             for (j = 0; j < currentNode.entryCount; j++) {
@@ -221,8 +222,8 @@ public class BTreeImpl<Key extends Comparable<Key>, Value> implements BTree<Key,
             }
         }
 
-        // Code for adding new Entry to external node
-        // OR adding new Entry (pointing to newNode) to internal node if newNode != null
+        // Code for either adding new Entry to external node
+        // OR adding new Entry (pointing to newNode) to internal node when newNode != null
 
         for (int i = currentNode.entryCount; i > j; i--) {
             currentNode.entries[i] = currentNode.entries[i-1];

@@ -4,14 +4,14 @@ import edu.yu.cs.com1320.project.MinHeap;
 
 import java.util.NoSuchElementException;
 public class MinHeapImpl<E extends Comparable<E>> extends MinHeap<E> {
-    //Fields are inherited. See MinHeap.java
+    //Fields inherited from MinHeap class
 
     public MinHeapImpl(){
         elements = (E[]) new Comparable[2];
     }
 
     /*
-    public void printHeap(){ //For additional testing only
+    public void printHeap(){ //For debugging only
         System.out.println("Starting Print:");
         for (E elem : elements){
             System.out.println("\t" + elem);
@@ -19,22 +19,16 @@ public class MinHeapImpl<E extends Comparable<E>> extends MinHeap<E> {
     }
      */
 
-
-    /// Piazza 198: "Throw a NoSuchElementException if param element not in heap"
     @Override
     public void reHeapify(E element){
         int index = getArrayIndex(element);
-        //if(index == -1) throw new NoSuchElementException("Cannot reheapify that which is not in heap"); -1 no lnoger used. getarray index calls the exception itself
 
-        //Downheap and Upheap methods each first check if given elem is in need of being moved at all
-        //assuming that the only element in the heap that has been altered is this one,
-        // it will either need upheaping downheaping or neither. Never both.
-        downHeap(index); //If something's last use time is made most recent, downHeap will bring it down to bottom of heap
-        upHeap(index); //If manually set last use time to Long.MINVALUE to artificially bring it to min, upheap will bring it all the way up
+        downHeap(index); //If an element's last use time is made most recent, downHeap will bring it down to bottom of heap
+        upHeap(index); //If an element's last use time is set to Long.MINVALUE to artificially make it the min of the heap, upheap will bring it all the way up
     }
 
     @Override
-    protected int getArrayIndex(E element){ //az urgent ensure that protected/public by end for all and this
+    protected int getArrayIndex(E element){
         for (int i = 1; i <= count; i++) {
             if (elements[i].equals(element)) {
                 return i;
@@ -44,7 +38,7 @@ public class MinHeapImpl<E extends Comparable<E>> extends MinHeap<E> {
         for (E elem : elements){
             System.out.println(elem);
         }
-        throw new NoSuchElementException(); //element not found in heap
+        throw new NoSuchElementException("Element not found in heap");
     }
 
     @Override

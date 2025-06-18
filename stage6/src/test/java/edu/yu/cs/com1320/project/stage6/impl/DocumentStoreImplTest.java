@@ -3,6 +3,7 @@ package edu.yu.cs.com1320.project.stage6.impl;
 import edu.yu.cs.com1320.project.stage6.Document;
 import edu.yu.cs.com1320.project.stage6.DocumentStore;
 import edu.yu.cs.com1320.project.stage6.DocumentStore.DocumentFormat;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -113,9 +114,16 @@ public class DocumentStoreImplTest {
         uric = URI.create("http://cde/world/com/what");
         urid = URI.create("http://d.com");
         urie = URI.create("http://e");
-
-        deleteJsonFiles(baseDir);
     }
+
+
+
+    @AfterEach
+    void afterEach(){
+        deleteJsonFiles(baseDir);
+        deleteJsonFiles(customBaseDir);
+    }
+
 
     private void deleteJsonFiles(File directory) {
         if (directory == null || !directory.exists()) return;
@@ -126,6 +134,11 @@ public class DocumentStoreImplTest {
             } else if (file.getName().endsWith(".json")) {
                 file.delete();
             }
+        }
+        //Delete empty directories
+        File[] nonDeletedFilesInDirectory = directory.listFiles();
+        if (nonDeletedFilesInDirectory != null && nonDeletedFilesInDirectory.length == 0) {
+            directory.delete();
         }
     }
 

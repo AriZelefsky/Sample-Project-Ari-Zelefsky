@@ -26,7 +26,8 @@ public class DocumentStoreImpl implements DocumentStore {
     private BTreeImpl<URI, Document> documentBTree;
     private Stack<Undoable> commandStack;
     private TrieImpl<URI> uriTrie;
-    //private TrieImpl<URI> metaDataTrie; //As per Piazza 285_f1, will store concatenated metadata key value pairs, allowing for searching MD's without accessing btree.get, which potentially accesses disk. Problem: metadata characters not guaranteed to be from ASCII character set, so trie would have to have arrays with over a million elements in case chinese characters and emojis are included in the metadata key or value strings
+    //private TrieImpl<URI> metaDataTrie; // To store concatenated metadata key value pairs, allowing for searching MD's without accessing btree.get, avoiding potentially accessing disk. Problem: metadata characters not guaranteed to be from ASCII character set, so trie would have to have arrays with over a million elements in case chinese/arabic/etc characters or emojis are included in the metadata key or value strings
+
     private MinHeap<UriWrapper> uriWrapperHeap;
     private Map<URI, Boolean> docInMemoryMap;
 
@@ -70,7 +71,6 @@ public class DocumentStoreImpl implements DocumentStore {
             return docOfUri.compareTo(otherDoc); //This returns long.compare(the last use times of the two docs)
         }
 
-        //Ensure that a newly created uriWrapper(uri) is considered the same as a current uriWrapper for that uri in the heap
         @Override
         public boolean equals(Object o){
             if(! (o instanceof UriWrapper)) return false;
@@ -103,9 +103,9 @@ public class DocumentStoreImpl implements DocumentStore {
         //prep for a potential future undo:
         String oldValue = this.documentBTree.get(uri).getMetadataValue(key); //will be null if there was no value, some String otherwise
         Consumer<URI> undoSetMDvalue = theUri -> {
-            this.documentBTree.get(theUri).setMetadataValue(key, oldValue); //resets value to prev value or null, null understood by HashTableImpl as delete
+            this.documentBTree.get(theUri).setMetadataValue(key, oldValue); //resets value to prev value or null, null understood by BTreeImpl as delete
             boolean didAnything = nextStepsUponBringingFromDisk(theUri); //In case btree.get took from disk,
-            if(!didAnything) moveToBottomOfHeap(theUri); //Sets Last Use time to now and Reheapifies, not needed if doc was just brought from disk, just isnerted into heap at bottom
+            if(!didAnything) moveToBottomOfHeap(theUri); //Sets Last Use time to now and Reheapifies, not needed if doc was just brought from disk, which would have inserted into heap at bottom
         };
 
         GenericCommand<URI> setMDValueCommand = new GenericCommand<>(uri, undoSetMDvalue);
@@ -121,14 +121,13 @@ public class DocumentStoreImpl implements DocumentStore {
         return results;
     }
 
-
+    /// Called when Btree.get() may have been called on a document on disk, automatically serializing it and bringing it into memory
     private boolean nextStepsUponBringingFromDisk(URI uri){
-        if(docInMemoryMap.get(uri) == false){ //ie uri used to be on disk
-            //Below method sets value to true in docsInMemory Map and increments memory counters
-            // and removes docs in event of exceeded memory limits and inserts doc into heap, at bottom/max
+        if(docInMemoryMap.get(uri) == false){ //If document was previously on disk, not in memory
             putIntoMemory(documentBTree.get(uri));
             return true;
         }
+
         return false; //Doc was not just brought from disk, but in memory all along, do nothing.
     }
 
@@ -148,7 +147,7 @@ public class DocumentStoreImpl implements DocumentStore {
      * For docs that formerly did no exist, or were on disk
      *  1. Updates counts of bytes and docs in memory
      *  2. Sets value to true in docInMemoryMap for this doc's uri
-     *  3. Makes lastUseTime of Doc right now (can be chagned again later to synchonize last use times in bulk actions)
+     *  3. Makes lastUseTime of Doc right now (can be changed again later to synchronize last use times in bulk actions)
      *  4. Inserts doc into heap (and heapifies it to bottom/max, given that last use time is right now
      * @throws IllegalArgumentException if memory footprint of the document is larger than this.maxDocumentBytes
      */
@@ -171,7 +170,6 @@ public class DocumentStoreImpl implements DocumentStore {
         //will have to setlastusetime of all docs AGAIN, even after this method has been called
         uriWrapperHeap.insert(new UriWrapper(doc.getKey()));
 
-        //Loop condition inside this method checks if it should remove anything at all
         removeLeastRecentlyUsedDocs();
     }
 
@@ -184,14 +182,12 @@ public class DocumentStoreImpl implements DocumentStore {
             Document lru = documentBTree.get(leastRecentUri);
 
             decrementMemoryCounts(lru);
-            //System.out.println("THE CURRENT DOC COUNT IS " + currentDocCount);
-            //System.out.println("PEEK:" + uriWrapperHeap.peek());
+
             //Send to disk vis a vis BTree
             assert docInMemoryMap.containsKey(leastRecentUri) : "this uri should certainly exist in either memory or disk";
             docInMemoryMap.put(leastRecentUri, false);
             try {
                 documentBTree.moveToDisk(leastRecentUri);
-                //System.out.println("getLRUU after moveTODISK :" + documentBTree.get(leastRecentUri));
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -206,11 +202,6 @@ public class DocumentStoreImpl implements DocumentStore {
         Document doc = documentBTree.get(uri);
         doc.setLastUseTime(nanoTime());
         this.uriWrapperHeap.reHeapify(new UriWrapper(uri));
-    }
-
-    private void moveToBottomOfHeap(Document doc){
-        doc.setLastUseTime(nanoTime());
-        this.uriWrapperHeap.reHeapify(new UriWrapper(doc.getKey()));
     }
 
     /**
@@ -236,11 +227,11 @@ public class DocumentStoreImpl implements DocumentStore {
     }
 
     /**
-     * @param input  the document being put
-     * @param url    unique identifier for the document
+     * @param input the document being put
+     * @param url unique identifier for the document
      * @param format indicates which type of document format is being passed
      * @return if there is no previous doc at the given URI, return 0. If there is a previous doc, return the hashCode of the previous doc. If InputStream is null, this is a delete, and thus return either the hashCode of the deleted doc or 0 if there is no doc to delete.
-     * @throws IOException              if there is an issue reading input
+     * @throws IOException if there is an issue reading input
      * @throws IllegalArgumentException if uri is null or empty, or format is null
      */
     @Override
@@ -252,8 +243,8 @@ public class DocumentStoreImpl implements DocumentStore {
         int returnValue = oldDoc != null ? oldDoc.hashCode() : 0;
 
         //Deleting:
-        if(input == null){ //if input is null, delete a doc and return its hashcode, or return 0 if there was no such doc to delete
-            delete(url); //delete method contains undo logic
+        if(input == null){
+            delete(url); //delete method contains its own undo logic
             return returnValue;
         }
 
@@ -264,7 +255,7 @@ public class DocumentStoreImpl implements DocumentStore {
             putBinaryDoc(url, dataInBinary);
         }
 
-        //Create New text doc, put it in hashtable, its URI in trie and heap, prepping for potential undo
+        //Create New text doc, put it in BTree, its URI in trie and heap, prepping for potential undo
         if(format == DocumentStore.DocumentFormat.TXT){
             putTextDoc(url, dataInBinary);
         }
@@ -272,9 +263,9 @@ public class DocumentStoreImpl implements DocumentStore {
     }
 
     private void decrementMemoryCounts(Document lru) {
-        int bytesOfMemoryRemoved = 0;
+        int bytesOfMemoryRemoved;
 
-        if (lru == null) return; //if a null doc was passed in, do nothing, return that 0 bytes were removed
+        if (lru == null) return;
 
 
         if(lru.getDocumentTxt() != null){ //If least recently used doc is Text:
@@ -283,15 +274,12 @@ public class DocumentStoreImpl implements DocumentStore {
             bytesOfMemoryRemoved = lru.getDocumentBinaryData().length;
         }
 
-        //in calling method, make sure to either calls docsInMemory.remove or docsinmemory.put(uri, false)
-        //depending on if removing the doc entirely or writing doc out to disk
-
         currentDocBytes -= bytesOfMemoryRemoved;
         currentDocCount--;
     }
 
     private void putTextDoc(URI url, byte[] dataInBinary) {
-        Document oldDoc = documentBTree.get(url); //will be null if there is no former Document
+        Document oldDoc = documentBTree.get(url); // Null if there is no former Document
 
         if(oldDoc != null && docInMemoryMap.get(url).equals(true)){
             decrementMemoryCounts(oldDoc);
@@ -309,11 +297,9 @@ public class DocumentStoreImpl implements DocumentStore {
                 decrementMemoryCounts(newDoc); //Decrement memory count if newDoc is in memory when it is overwritten
             }
 
-
-            //Remove newly put doc from trie
             deleteDocFromTrie(newDoc);
 
-            //Remove newly put doc from heap (must be done before putting oldDoc back into btree)
+            //Remove newly put doc from heap (Note: this must be done before putting oldDoc back into btree)
             removeFromHeap(newDoc);
 
             //Replace newly put doc with old doc in BTree. If old doc == null, this will delete newDoc without putting anything in its place
@@ -328,26 +314,19 @@ public class DocumentStoreImpl implements DocumentStore {
             }
 
         };
-
-        // Remove uri from trie at all of oldDoc's words. THIS NEEDS TO CCOME BEFORE PUTTING BACK NEWDOC, in case they share words, the trie should end the say with uri at those words
         deleteDocFromTrie(oldDoc);
 
-        //remove old doc from heap
-        //This must be done BEFORE newdoc replaces olddoc in btree, because sorting/heapifying of heap is based on
-            //UriWrapper.compareTo, which looks at the last use time of the doc at given URIs in the btree, hence oldDoc must still be the doc present in btree at this uri
         if(oldDoc != null && docInMemoryMap.get(url).equals(true)){
             removeFromHeap(oldDoc);
         }
-        // Replace oldDoc, if it existed with newDoc in BTree
+
         documentBTree.put(url, newDoc);
 
         //Increment memory counts, put into docsinmemoryMap, insert (back) into heap
         putIntoMemory(newDoc);
 
-        // Put uri into Trie at all of newDoc's words
         putDocIntoTrie(newDoc);
 
-        //Add putCommand to Command Stack
         GenericCommand<URI> putTextDocCommand = new GenericCommand<>(url, undoTextDocPut);
         commandStack.push(putTextDocCommand);
     }
@@ -361,27 +340,24 @@ public class DocumentStoreImpl implements DocumentStore {
     /// Deletes each word of a Document from DocumentTrie
     private void deleteDocFromTrie(Document oldDoc) {
         if(oldDoc != null) {
-            for (String word : oldDoc.getWords()) { //For each Word String in Doc being added to Store
-                for (int i = 0; i < oldDoc.wordCount(word); i++) { //For each occurrence of said word
-                    uriTrie.delete(word, oldDoc.getKey()); //Remove Document's URI from Word's node in trie
+            for (String word : oldDoc.getWords()) {
+                for (int i = 0; i < oldDoc.wordCount(word); i++) {
+                    uriTrie.delete(word, oldDoc.getKey());
                 }
             }
         }
     }
 
-
     ///  Puts every word of a Document into DocumentTrie
     private void putDocIntoTrie(Document doc) {
-        if(doc == null) return; //This should never be the case. Never call on null.
-        for (String word : doc.getWords()) { //For each Word String in Doc being added to Store
-            for (int i = 0; i < doc.wordCount(word); i++) { //For each occurrence of said word
-                uriTrie.put(word, doc.getKey()); //Add Document's URI to Word's node in trie
+        if(doc == null) return;
+        for (String word : doc.getWords()) {
+            for (int i = 0; i < doc.wordCount(word); i++) {
+                uriTrie.put(word, doc.getKey());
             }
         }
     }
 
-
-    /// Called by public PUT method to put BINARY document into hashtable, prepping for future undoing
     private void putBinaryDoc(URI url, byte[] dataInBinary) {
         Document oldDoc = documentBTree.get(url);
         if(oldDoc != null && docInMemoryMap.get(url).equals(true)){
@@ -393,26 +369,21 @@ public class DocumentStoreImpl implements DocumentStore {
         // Undo prep
         Consumer<URI> undoBinaryPut = uriParam -> {
             if(docInMemoryMap.get(uriParam).equals(true)){
-                decrementMemoryCounts(newDoc); //Decrement memory count if newDoc is in memory when it is overwritten
+                decrementMemoryCounts(newDoc);
             }
 
-            //remove newDoc from heap (MUST BE DONE before put into btree)
             removeFromHeap(newDoc);
 
-            //Add old doc back to BTree, if it exists, while deleting newDoc from Btree
             documentBTree.put(uriParam, oldDoc);
 
-            //Add oldDoc back to Heap, update memory count, (it is added back to hashtable above)
             if(oldDoc != null){
                 putIntoMemory(oldDoc);
             } else{
-                docInMemoryMap.remove(uriParam); //No need for this if oldDoc!=null, because putIntoMemory will put TRUE into this map on account of the newly put back oldDoc
-            }
+                docInMemoryMap.remove(uriParam);            }
         };
 
         GenericCommand<URI> putBinaryDocCommand = new GenericCommand<>(url, undoBinaryPut);
 
-        //remove old doc from heap
         if(oldDoc != null && docInMemoryMap.get(url).equals(true)){
             removeFromHeap(oldDoc);
         }
@@ -433,7 +404,7 @@ public class DocumentStoreImpl implements DocumentStore {
         Document doc = documentBTree.get(url);
         if(doc != null){
             boolean broughtFromDisk = nextStepsUponBringingFromDisk(url); //for docs gotten from disk, includes logic to increment memory counts and insert into heap in the first place
-            if(!broughtFromDisk) moveToBottomOfHeap(url); //sets last use time to now & reheapifies, in case gotten doc was not from disk
+            if(!broughtFromDisk) moveToBottomOfHeap(url);
         }
         return doc;
     }
@@ -454,7 +425,7 @@ public class DocumentStoreImpl implements DocumentStore {
     ///A local class that can be called during deletes and undoDeletes of each doc, returning identical timeStamp each time
     private class IdenticalTimeStampProvider {
         Long timeStampForUndo;
-        //Long timeStampForDelete;
+        Long timeStampForDelete;
 
         public Long getTimeStampForUndo() {
             if (timeStampForUndo == null){
@@ -462,12 +433,12 @@ public class DocumentStoreImpl implements DocumentStore {
             }
             return timeStampForUndo;
         }
-        /* public Long getTimeStampForDelete() { //Method removed based on specs update to not adjust last use time of doc after it is deleted from store
+        public Long getTimeStampForDelete() {
             if (timeStampForDelete == null){
                 timeStampForDelete = nanoTime(); //Sets time equal to the nanotime at deletion of first doc
             }
             return timeStampForDelete;
-        }*/
+        }
     }
 
     /**
@@ -480,8 +451,8 @@ public class DocumentStoreImpl implements DocumentStore {
 
         if(docToDelete != null) {
             if(docInMemoryMap.get(url).equals(true)){
-                decrementMemoryCounts(docToDelete); //Decrement memory count if docToDelete was in memory previsouly, not just now taken off disk
-                removeFromHeap(docToDelete); //sets lastusetime to Long.MIN_VALUE, removes from heap, iT must be before we change btree
+                decrementMemoryCounts(docToDelete); //Decrement memory count if docToDelete was in memory previously, not just now taken off disk
+                removeFromHeap(docToDelete);
             }
 
             documentBTree.put(url, null);
@@ -491,17 +462,14 @@ public class DocumentStoreImpl implements DocumentStore {
 
             deleteDocFromTrie(docToDelete);
 
-            docToDelete.setLastUseTime(formerLastUseTime); //ensuring, as per piazza, that deletes do not adjust last use time
+            docToDelete.setLastUseTime(formerLastUseTime); //Ensuring, as per update to specs, that deletes do NOT make any change to last use time. (Alternative would be to use the timeStampProvider, not only adjusting lastUseTime on a delete, but ensuring that multiple docs deleted in a bulk delete end up with the same last use time)
         }
-
 
         Consumer<URI> toUndoDelete = uri -> {
             if(docToDelete != null){ //But if the doc we are deleting was not even there to delete, do NOTHING to undo the so called "delete"
-                //Add doc back to BTree, Trie, and Heap, and reflect this addition in memory counts:
-
                 Document doc = documentBTree.put(uri, docToDelete);
 
-                putIntoMemory(docToDelete); //Put back all the bytes that were removed in the delete, and even if doc was deleted out of disk, deletion makes it the most recently used and brings it into memory, double check on piazza though
+                putIntoMemory(docToDelete);
 
                 putDocIntoTrie(docToDelete);
 
@@ -516,7 +484,7 @@ public class DocumentStoreImpl implements DocumentStore {
     }
 
     /**
-     * undo the last put or delete command
+     * undo the last put, delete, or setMetaData command
      *
      * @throws IllegalStateException if there are no actions to be undone, i.e. the command stack is empty
      */
@@ -529,11 +497,11 @@ public class DocumentStoreImpl implements DocumentStore {
     }
 
     /**
-     * undo the last put or delete that was done with the given URI as its key
+     * undo the last put, delete, or setMetaData that was done with the given URI as its key
      *
-     * AZ: If most recent command involving this uri was a deleteAll of a group, this will only undo
-     *     the delete of this specific uri
-     *     if this is the LAST command in the commandset, only then would the entire CommandSet be POPPED off stack
+     * If the most recent command involving this uri was a deleteAll of a group, this will only undo
+     * the delete of this specific uri. If this is the only remaining command in a commandset,
+     * the entire CommandSet be POPPED off stack
      * @param url
      * @throws IllegalStateException if there are no actions on the command stack for the given URI
      */
@@ -565,6 +533,7 @@ public class DocumentStoreImpl implements DocumentStore {
                 commandStack.pop();
             }
         }
+
         //Push everything that was not undone back onto command stack
         while(helperStack.peek() != null){
             commandStack.push(helperStack.pop());
@@ -581,7 +550,7 @@ public class DocumentStoreImpl implements DocumentStore {
      */
     @Override
     public List<Document> search(String keyword) throws IOException {
-        List<URI> dummySortedSearchResults = getURIsWithKeywordUnorted(keyword);
+        List<URI> dummySortedSearchResults = getURIsWithKeywordUnsorted(keyword);
         List<Document> docs = new ArrayList<>();
 
         for(URI uri : dummySortedSearchResults){
@@ -593,18 +562,16 @@ public class DocumentStoreImpl implements DocumentStore {
         docs.sort(wordCountSorter);
         bulkSetLastUseTime(docs);
 
-
-
         return docs;
     }
     /**
-     * As of stage6, no longer sorting via trie.getsorted(). Instead, passing trie.get sorted
+     * As of stage6, no longer sorting via trie.getsorted(). Instead, passing trie.getSorted
      * a dummy comparator, such that all sorting can wait until list of URIs is whittled down
      * to only include URIs that ALSO match additional search requirements (for keyword and metadata or prefix and metadata)
-     * searches. This way, the comparator, whose search involved calling btree.get.getwordcount, rehydrating docs form disk,
+     * searches. This way, the comparator, whose search involved calling btree.get.getwordcount, which rehydrates docs from disk,
      * is only used on the docs that are search results, and not on results of half the query.
      */
-    private List<URI> getURIsWithKeywordUnorted(String keyword) {
+    private List<URI> getURIsWithKeywordUnsorted(String keyword) {
         if(keyword == null || keyword.isEmpty()) return Collections.emptyList();
 
         //Comparator<URI> wordCountSorter = (uri1, uri2) -> DocumentStoreImpl.this.documentBTree.get(uri2).wordCount(keyword) - DocumentStoreImpl.this.documentBTree.get(uri1).wordCount(keyword);
@@ -620,10 +587,7 @@ public class DocumentStoreImpl implements DocumentStore {
             doc.setLastUseTime(timeStampForAll);
             if(docInMemoryMap.get(doc.getKey()).equals(true)){
                 uriWrapperHeap.reHeapify(new UriWrapper(doc.getKey()));
-            } //Else, when putting each doc into sorted docs,
-            // having called nextSteps...() in case the doc was just brought from disk,
-            // the memory limits must have been exceeded, leading the nextsteps method to call removeLeastRecentlyUsedDocs,
-            //and there must have been a low enough limit and few enough total docs in the store that 1+ of the docs just now added from disk in this search were themselves removed
+            }
         }
     }
 
@@ -640,16 +604,16 @@ public class DocumentStoreImpl implements DocumentStore {
 
         List<URI> dummySortedSearchResults = getURIsWithPrefixSorted(keywordPrefix); //Empty list if null/empty keyword
 
-        List<Document> sortedDocs = new ArrayList<>();
+        List<Document> trulySortedDocs = new ArrayList<>();
         for (URI uri : dummySortedSearchResults){
             Document doc = documentBTree.get(uri);
             nextStepsUponBringingFromDisk(uri);
-            sortedDocs.add(documentBTree.get(uri));
+            trulySortedDocs.add(documentBTree.get(uri));
         }
-        sortedDocs.sort(getPrefixSortComparatorForDocs(keywordPrefix));
-        bulkSetLastUseTime(sortedDocs);
+        trulySortedDocs.sort(getPrefixSortComparatorForDocs(keywordPrefix));
+        bulkSetLastUseTime(trulySortedDocs);
 
-        return sortedDocs;
+        return trulySortedDocs;
     }
 
     private List<URI> getURIsWithPrefixSorted(String keywordPrefix) {
@@ -661,35 +625,7 @@ public class DocumentStoreImpl implements DocumentStore {
         return dummySortedUris;
     }
 
-    private Comparator<URI> getPrefixSortComparatorForUris(String keywordPrefix){
-        //If word has this prefix
-        //Increment prefix count as many times as word with prefix exists in document
-        return new Comparator<URI>() {
-            @Override
-            public int compare(URI uri1, URI uri2) {
-                int doc1Count = 0;
-                int doc2Count = 0;
-                Document doc1 = DocumentStoreImpl.this.documentBTree.get(uri1);
-                Document doc2 = DocumentStoreImpl.this.documentBTree.get(uri2);
-
-                for (String word : doc1.getWords()){
-                    if(word.startsWith(keywordPrefix)){ //If word has this prefix
-                        doc1Count += doc1.wordCount(word); //Increment prefix count as many times as word with prefix exists in document
-                    }
-                }
-                for (String word : doc2.getWords()){
-                    if(word.startsWith(keywordPrefix)){
-                        doc2Count += doc2.wordCount(word);
-                    }
-                }
-                return doc2Count - doc1Count;
-            }
-        };
-    }
-
     private Comparator<Document> getPrefixSortComparatorForDocs(String keywordPrefix){
-        //If word has this prefix
-        //Increment prefix count as many times as word with prefix exists in document
         return new Comparator<Document>() {
             @Override
             public int compare(Document doc1, Document doc2) {
@@ -711,7 +647,7 @@ public class DocumentStoreImpl implements DocumentStore {
     }
 
     /**
-     * Completely remove any trace, from Hashtable and Trie, of any document in the provided list
+     * Completely remove any trace of any document in the provided list
      * @return a Set of URIs of the documents that were deleted.
      * A list of a singular document will result in a commandSet of a singular generic command
      * An empty list will result in a commandSet that is empty. User will call undo() to pop that off the stack, not actually undoing anything of significance (but for all they know the deleteAll did something, so they will think that they have to undo it) and then the next undo call will undo previous command
@@ -747,10 +683,10 @@ public class DocumentStoreImpl implements DocumentStore {
      */
     @Override
     public Set<URI> deleteAll(String keyword) {
-        List<URI> URIsWithKeyword = getURIsWithKeywordUnorted(keyword); //Not actually sorted, comparator had no logical ordering
+        List<URI> URIsWithKeyword = getURIsWithKeywordUnsorted(keyword); //Not actually sorted, comparator had no logical ordering
         List<Document> docsWithKeyword = new ArrayList<>();
         for(URI uri : URIsWithKeyword){
-            docsWithKeyword.add(documentBTree.get(uri)); //Not calling nextSteps...() so that delete method works properly
+            docsWithKeyword.add(documentBTree.get(uri)); //Not calling nextSteps...(),
         }
 
         return deleteAllDocsInList(docsWithKeyword); //Undo logic taken care of there
@@ -769,7 +705,7 @@ public class DocumentStoreImpl implements DocumentStore {
 
         List<Document> docsWithPrefix = new ArrayList<>();
         for(URI uri : URIsWithPrefix){
-            docsWithPrefix.add(documentBTree.get(uri)); //Not calling nextSteps...() so that delete method works properly
+            docsWithPrefix.add(documentBTree.get(uri)); //Not calling nextStepsUponBringingIntoMemory(), which would reflect that the document has now technically been brought into memory, so that delete method called in deleteAllDocsInList method can know whether the doc being deleted originates from disk or memory
         }
 
         return deleteAllDocsInList(docsWithPrefix); //Undo logic taken care of there
@@ -798,23 +734,21 @@ public class DocumentStoreImpl implements DocumentStore {
 
         for (URI uri : this.docInMemoryMap.keySet()){ //All the Documents in the <URI, Document> hashmap, including those on disk
             Document doc = documentBTree.get(uri);
-            if(doc==null) System.out.println("CULPRIT: " + uri);
             boolean hasAll = true;
             for (String key: keysValues.keySet()){
-                if(doc.getMetadataValue(key)==null || !doc.getMetadataValue(key).equals(keysValues.get(key))){ //if doc in question does not have one of of these keys, or has the wrong value for one of these keys, it will not be added to list
+                if(doc.getMetadataValue(key)==null || !doc.getMetadataValue(key).equals(keysValues.get(key))){
                     hasAll = false;
                 }
             }
             if(hasAll){
                 docsWithMetadata.add(doc);
-                // calling methods will call nextSteps() or movebacktodisk() on each uri, depending on whether further search criteria are met
+                // calling methods will call nextStepsUpon...() or movebacktodisk() on each uri, depending on whether further search criteria are met
             } else{
                 moveBackToDiskIfWasThereBefore(uri);
             }
         }
         return docsWithMetadata;
     }
-
 
     /**
      * Retrieve all documents whose text contains the given keyword AND which has the given key-value pairs in its metadata
@@ -837,13 +771,12 @@ public class DocumentStoreImpl implements DocumentStore {
 
     private List<Document> getDocsWithKeywordAndMetaData(String keyword, Map<String, String> keysValues) {
         List<Document> docsWithMetaData = getDocsWithMetaDataSorted(keysValues);
-        List<URI> dummySortedURIsWithKeyword = getURIsWithKeywordUnorted(keyword);
+        List<URI> dummySortedURIsWithKeyword = getURIsWithKeywordUnsorted(keyword);
 
         List<Document> docsWithBoth = new ArrayList<>();
 
-        for (Document doc: docsWithMetaData){
-            URI uriWithMetaData = doc.getKey(); //getDocsWithMetaDataSorted called docBTree.get to get each doc, hence bringing disk docs to memory
-
+        for (Document doc: docsWithMetaData){ //If any of these docs were formerly on disk, they were brought into memory during getDocsWithMetaDataSorted()
+            URI uriWithMetaData = doc.getKey();
             if(dummySortedURIsWithKeyword.contains(uriWithMetaData)){
                 docsWithBoth.add(doc);
                 nextStepsUponBringingFromDisk(uriWithMetaData);
@@ -857,9 +790,15 @@ public class DocumentStoreImpl implements DocumentStore {
         return docsWithBoth;
     }
 
+
+    /**
+     * Same as getDocsWithKeywordAndMetaData method, but without calling nextStepsUponBringingFromDisk method,
+     * as even if doc was brought from disk to memory, adjusting memory counters accordingly would potentially kick other documents out of the memory to make room,
+     * when really we should just wait for the conclusion of the deletion method, which will delete this doc that was temporarily brought into memory.
+     */
     private List<Document> forDeleteGetDocsWithKeywordAndMetaData(String keyword, Map<String, String> keysValues) {
         List<Document> docsWithMetaData = getDocsWithMetaDataSorted(keysValues);
-        List<URI> dummySortedURIsWithKeyword = getURIsWithKeywordUnorted(keyword);
+        List<URI> dummySortedURIsWithKeyword = getURIsWithKeywordUnsorted(keyword);
 
         List<Document> docsWithBoth = new ArrayList<>();
 
@@ -949,12 +888,8 @@ public class DocumentStoreImpl implements DocumentStore {
      */
     @Override
     public Set<URI> deleteAllWithMetadata(Map<String, String> keysValues) throws IOException {
-        List<Document> docsWithMD = getDocsWithMetaDataSorted(keysValues);
-        //not calling nextSteps() to reflect that docs on disk were just brought to memory, because deleteandreturncommand()
-        //deleted it anyways, and makes sure to only decrement memory counts if it sees that the doc was previously, prior to this
-        //method being called, in memory.
-
-        return deleteAllDocsInList(docsWithMD); //Undo logic taken care of there
+        List<Document> docsWithMD = getDocsWithMetaDataSorted(keysValues); //not calling nextSteps...()
+        return deleteAllDocsInList(docsWithMD);
     }
 
     /**
@@ -968,7 +903,7 @@ public class DocumentStoreImpl implements DocumentStore {
     @Override
     public Set<URI> deleteAllWithKeywordAndMetadata(String keyword, Map<String, String> keysValues) throws IOException {
         List<Document> docsWithKeywordAndMD = forDeleteGetDocsWithKeywordAndMetaData(keyword, keysValues);
-        return deleteAllDocsInList(docsWithKeywordAndMD); //Undo logic taken care of there
+        return deleteAllDocsInList(docsWithKeywordAndMD);
     }
 
     /**
@@ -982,7 +917,7 @@ public class DocumentStoreImpl implements DocumentStore {
     @Override
     public Set<URI> deleteAllWithPrefixAndMetadata(String keywordPrefix, Map<String, String> keysValues) throws IOException {
         List<Document> docsWithPrefixAndMD = forDeleteGetDocsWithPrefixAndMetaDataSorted(keywordPrefix, keysValues);
-        return deleteAllDocsInList(docsWithPrefixAndMD); //Undo logic taken care of there
+        return deleteAllDocsInList(docsWithPrefixAndMD);
     }
 
     /**
@@ -997,7 +932,7 @@ public class DocumentStoreImpl implements DocumentStore {
 
         maxDocCount = limit;
 
-        removeLeastRecentlyUsedDocs(); // This first checks if it needs to remove anything at all
+        removeLeastRecentlyUsedDocs(); // First checks if it needs to remove anything at all
     }
 
     /**
@@ -1012,6 +947,6 @@ public class DocumentStoreImpl implements DocumentStore {
 
         maxDocBytes = limit;
 
-        removeLeastRecentlyUsedDocs(); //This method first checks if it needs to remove anything at all
+        removeLeastRecentlyUsedDocs(); //First checks if it needs to remove anything at all
     }
 }

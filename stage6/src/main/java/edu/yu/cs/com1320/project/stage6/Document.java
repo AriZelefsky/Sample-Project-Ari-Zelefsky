@@ -6,7 +6,7 @@ import java.util.Set;
 
 public interface Document extends Comparable<Document> {
     /**
-     * @param key   key of document metadata to store a value for
+     * @param key key of document metadata to store a value for
      * @param value value to store
      * @return old value, or null if there was no old value
      * @throws IllegalArgumentException if the key is null or blank
@@ -70,8 +70,7 @@ public interface Document extends Comparable<Document> {
     HashMap<String, Integer> getWordMap();
 
     /**
-     * This must set the word to count map durlng deserialization
-     *
+     * This must set the word to count map during deserialization
      * @param wordMap
      */
     void setWordMap(HashMap<String, Integer> wordMap);

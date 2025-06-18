@@ -15,13 +15,6 @@ public class StackImpl<T> implements Stack<T> {
     Node head;
 
     /**
-     * Constructor MUST NOT take any arguments
-     */
-    public StackImpl(){
-        //Pass Prof's test for having a constructor.
-    }
-
-    /**
      * @param element object to add to the Stack
      */
     @Override
@@ -30,7 +23,6 @@ public class StackImpl<T> implements Stack<T> {
         newlyPushedNode.nextNode = this.head;
         this.head = newlyPushedNode;
     }
-
 
     /**
      * removes and returns element at the top of the stack

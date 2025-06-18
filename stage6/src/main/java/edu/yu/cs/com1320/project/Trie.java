@@ -4,10 +4,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
-/**
- * FOR STAGE 3
- * @param <Value>
- */
 public interface Trie<Value>
 {
     /**
@@ -19,7 +15,7 @@ public interface Trie<Value>
 
     /**
      * Get all exact matches for the given key, sorted in descending order, where "descending" is defined by the comparator.
-     * NOTE FOR COM1320 PROJECT: FOR PURPOSES OF A *KEYWORD* SEARCH, THE COMPARATOR SHOULD DEFINE ORDER AS HOW MANY TIMES THE KEYWORD APPEARS IN THE DOCUMENT.
+     * NOTE FOR THIS PROJECT: FOR PURPOSES OF A *KEYWORD* SEARCH, THE COMPARATOR SHOULD DEFINE ORDER AS HOW MANY TIMES THE KEYWORD APPEARS IN THE DOCUMENT.
      * Search is CASE SENSITIVE.
      * @param key
      * @param comparator used to sort values
@@ -37,7 +33,7 @@ public interface Trie<Value>
 
     /**
      * get all matches which contain a String with the given prefix, sorted in descending order, where "descending" is defined by the comparator.
-     * NOTE FOR COM1320 PROJECT: FOR PURPOSES OF A *KEYWORD* SEARCH, THE COMPARATOR SHOULD DEFINE ORDER AS HOW MANY TIMES THE KEYWORD APPEARS IN THE DOCUMENT.
+     * NOTE FOR THIS PROJECT: FOR PURPOSES OF A *KEYWORD* SEARCH, THE COMPARATOR SHOULD DEFINE ORDER AS HOW MANY TIMES THE KEYWORD APPEARS IN THE DOCUMENT.
      * For example, if the key is "Too", you would return any value that contains "Tool", "Too", "Tooth", "Toodle", etc.
      * Search is CASE SENSITIVE.
      * @param prefix

@@ -3,7 +3,7 @@ package edu.yu.cs.com1320.project;
 import java.util.NoSuchElementException;
 
 /**
- * Beginnings of a MinHeap, for Stage 5 of project. Does not include the additional data structure or logic needed to reheapify an element after its last use time changes.
+ * Beginnings of a MinHeap. Does not include the additional data structure or logic needed to reheapify an element after its last use time changes.
  * @param <E>
  */
 public abstract class MinHeap<E extends Comparable<E>> {

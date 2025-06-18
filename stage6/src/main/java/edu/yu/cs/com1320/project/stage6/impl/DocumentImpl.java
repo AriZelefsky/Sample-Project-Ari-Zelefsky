@@ -50,8 +50,9 @@ public class DocumentImpl implements Document {
 
 
     /**
-     * As per current conclusion on piazza, letters/digits count towards words, spaces separate, other things are ignored/as if they do not exist. T*)h.e h&i is 'the' and 'hi'
-     * */
+     * Note on definition of a word:
+     * letters and digits count towards words, spaces separate, other characters are ignored/as if they do not exist. T*)h.e h&i is 'the' and 'hi'
+     */
     private void setWordsAndCounts(){
         this.wordMap = new HashMap<>();
         for (int i = 0; i < this.text.length(); i++) {
@@ -71,7 +72,7 @@ public class DocumentImpl implements Document {
     }
 
     /**
-     * @param key   key of document metadata to store a value for
+     * @param key key of document metadata to store a value for
      * @param value value to store
      * @return old value, or null if there was no old value
      * @throws IllegalArgumentException if the key is null or blank
@@ -111,10 +112,6 @@ public class DocumentImpl implements Document {
 
     @Override
     public void setMetadata(HashMap<String, String> metadata) {
-        //either loop-ingly call serMetaDataValue on each of metadata, allowing this method
-        //to technically add multiple metadatas without deleting previous ones
-        //
-        //OR just set this.metadata = to the param. URGENT check if that is ok
         this.metadata = metadata;
     }
 
@@ -143,8 +140,6 @@ public class DocumentImpl implements Document {
     }
 
     /**
-     * how many times does the given word appear in the document?
-     *
      * @param word
      * @return the number of times the given words appears in the document. If it's a binary document, return 0.
      */
@@ -159,13 +154,12 @@ public class DocumentImpl implements Document {
      */
     @Override
     public Set<String> getWords() {
-        if (this.text==null) return new HashSet<>(); //Return EMPTY COLLECTION not null for binary doc, as per specs
+        if (this.text==null) return new HashSet<>(); //Return an empty set, not null, for binary doc.
         return new HashSet<>(this.wordMap.keySet());
     }
 
     /**
      * return the last time this document was used, via put/get or via a search result
-     * (for stage 4 of project)
      */
     @Override
     public long getLastUseTime() {
@@ -186,8 +180,7 @@ public class DocumentImpl implements Document {
     }
 
     /**
-     * This must set the word to count map during deserialization
-     * (AZ if it would be called not during deserialization, it would delete existing wordMap entries) see piazza urgently if that ok
+     * Sets the wordCount map during deserialization
      * @param wordMap
      */
     @Override
@@ -198,12 +191,11 @@ public class DocumentImpl implements Document {
 
     @Override
     public int compareTo(Document o) {
-        return Long.compare(this.getLastUseTime(), o.getLastUseTime()); //DO NOT do (int) this.getlast -other.get, as that is flawed in case of integer overflow
-        //returns a negative if other is later in time. This will create an order from earliest time to latest, most recent time. First in list will be least recent, most likely to get rid of .
+        return Long.compare(this.getLastUseTime(), o.getLastUseTime()); //The later the lastUseTime, the 'greater' in value the Document
     }
 
     /**
-     * Specs demand equals return true iff hashCodes are equal
+     * Specs demand equals return true iff hashCodes are equal, not actually ensuring that the documents are identical
      */
     @Override
     public boolean equals(Object obj){
